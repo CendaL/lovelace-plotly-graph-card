@@ -6,6 +6,7 @@
   "scripts": {
     "start": "(node ./script/hot-reload.mjs & esbuild src/plotly-graph-card.ts --servedir=dist --outdir=dist --bundle --sourcemap=inline)",
     "build": "esbuild src/plotly-graph-card.ts --outdir=dist --bundle --minify",
+    "tsc": "tsc",
     "test": "jest",
     "test:watch": "jest --watchAll",
     "version": "npm run build && git add .",
@@ -42,7 +43,9 @@
     "ml-regression-theil-sen": "^2.0.0",
     "ndarray": "^1.0.19",
     "ndarray-fft": "^1.0.3",
-    "plotly.js": "^2.18.1",
-    "propose": "^0.0.5"
+    "plotly.js": "^2.34.0",
+    "prettier": "^3.3.3",
+    "propose": "^0.0.5",
+    "typescript": "^5.6.3"
   }
 }

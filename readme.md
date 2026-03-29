@@ -25,9 +25,21 @@
 
 You may find some extra info there in this link
 
+## [Index of examples with images](./discussion-index.md)
+
+You can browse this list and find yamls by looking at images
+
+Created with this [quick and dirty script](./discussion-index.mjs)
+
 ## More yaml examples
 
 Find more advanced examples in [Show & Tell](https://github.com/dbuezas/lovelace-plotly-graph-card/discussions/categories/show-and-tell)
+
+## Yaml syntax validatoin
+
+Web app to assist you with syntax validation and autocomplete: [Plotly graph card yaml editor](https://dbuezas.github.io/lovelace-plotly-graph-card/)
+
+<img width="300" alt="image" src="https://github.com/user-attachments/assets/2c9b3b85-85d4-49c4-80bc-ebc28eeaf141" >
 
 ## Installation
 
@@ -265,7 +277,9 @@ Note that `5minute` period statistics are limited in time as normal recorder his
 
 ## show_value:
 
-Shows the value of the last datapoint as text in the plot.
+Shows the value of the last datapoint as text in a scatter plot.
+
+> Warning: don't use it with bar charts, it will only add an extra bar and no text
 
 Examples:
 
@@ -489,8 +503,7 @@ entities:
       - map_y: 'y === "heat" ? 1 : 0' # map the y values of each datapoint. Variables `i` (index), `x`, `y`, `state`, `statistic`, `xs`, `ys`, `states`, `statistics`, `meta`, `vars` and `hass` are in scope. The outer quoutes are there because yaml doesn't like colons in strings without quoutes.
       - map_x: new Date(+x + 1000) # map the x coordinate (javascript date object) of each datapoint. Same variables as map_y are in scope
       - fn: |- # arbitrary function. Only the keys that are returned are replaced. Returning null or undefined, leaves the data unchanged (useful )
-
-          ({xs, ys, meta, states, statistics, hass}) => {
+          ({xs, ys, vars, meta, states, statistics, hass}) => {
             # either statistics or states will be available, depending on if "statistics" are fetched or not
             # attributes will be available inside states only if an attribute is picked in the trace
             return {
@@ -625,6 +638,20 @@ entities:
       - map_y: parseFloat(y) * parseFloat(hass.states['sensor.cost'].state)
 ```
 
+This can also be used to fetch data by calling a HA service. As this is a call that requires a network connection, the function needs to be defined `async`:
+```yaml
+    filters:
+      - fn: |-
+          async ({xs, ys, meta, hass}) => {
+            const weather = await hass.callService("weather", "get_forecasts", {type: "hourly"}, {entity_id:"weather.home"}, true, true)
+            const home = weather.response["weather.home"].forecast
+            return {
+              xs: home.map(h => new Date(h.datetime)),
+              ys: home.map(h => h.temperature)
+            }
+          }
+```
+
 ##### Using vars
 
 Compute absolute humidity
@@ -745,6 +772,44 @@ on_dblclick: |-
   }
 ```
 
+## Annotation and button click handlers
+
+In a similar way, you can respond to clicks on annotations (requiring `captureevents: true`).
+
+```yaml
+type: custom:plotly-graph
+entities:
+  - entity: sensor.temperature1
+layout:
+  annotations:
+    - x: 1
+      xref: paper
+      "y": 1
+      yref: paper
+      showarrow: false
+      text: "📊"
+      captureevents: true
+      on_click: $ex () => { window.location="/history?entity_id=sensor.temperature1"; }
+```
+
+Or to clicks on custom update menu buttons.
+
+```yaml
+type: custom:plotly-graph
+entities:
+  - entity: sensor.temperature1
+layout:
+  updatemenus:
+    - buttons:
+        - label: History
+          method: skip
+          on_click: $ex () => { window.location="/history?entity_id=sensor.temperature1"; }
+      showactive: false
+      type: buttons
+      x: 1
+      "y": 1
+```
+
 See more in plotly's [official docs](https://plotly.com/javascript/plotlyjs-events)
 
 ## Universal functions
@@ -785,7 +850,7 @@ Remember you can add a `console.log(the_object_you_want_to_inspect)` and see its
 - `path: string;` The path of the current function
 - `css_vars: HATheme;` The colors set by the active Home Assistant theme (see #ha_theme)
 
-#### Only iniside entities
+#### Only inside entities
 
 - `xs: Date[];` Array of timestamps
 - `ys: YValue[];` Array of values of the sensor/attribute/statistic
@@ -800,6 +865,8 @@ Remember you can add a `console.log(the_object_you_want_to_inspect)` and see its
 - Functions cannot return functions for performance reasons. (feature request if you need this)
 - Defaults are not applied to the subelements returned by a function. (feature request if you need this)
 - You can get other values from the yaml with the `getFromConfig` parameter, but if they are functions they need to be defined before.
+- Any function which uses the result of a filter, needs to be placed in the YAML below the filter. For instance, `name: $ex ys.at(-1)` where the filter is modifying `ys`.
+- The same is true of consecutive filters - order matters. This is due to the fact that filters are translated internally to function calls, executed in the order they are parsed.
 
 #### Adding the last value to the entitiy's name
 
@@ -867,9 +934,17 @@ entities:
 hours_to_show: current_day
 ```
 
+#### disabling hover text
+
+can be achieved by setting inside entities:
+```yaml
+hovertemplate: null
+hoverinfo: 'skip'
+```
+
 ## Default trace & axis styling
 
-default configurations for all entities and all yaxes (e.g yaxis, yaxis2, yaxis3, etc).
+default configurations for all entities and all xaxes (e.g xaxis, xaxis2, xaxis3, etc) and yaxes (e.g yaxis, yaxis2, yaxis3, etc).
 
 ```yaml
 type: custom:plotly-graph
@@ -881,6 +956,8 @@ defaults:
     fill: tozeroy
     line:
       width: 2
+  xaxes:
+    showgrid: false # Disables vertical gridlines
   yaxes:
     fixedrange: true # disables vertical zoom & scroll
 ```
@@ -986,6 +1063,119 @@ config:
 ** Home Assistant custom Number and Date format will be ignored, only the language determines the locale **
 
 When using `hours_to_show: current_week`, the "First day of the week" configured in Home Assistant is used
+
+## Presets
+
+If you find yourself reusing the same card configuration frequently, you can save it as a preset.
+
+### Setup
+
+Presets are loaded from the global `PlotlyGraphCardPresets` JS object (such that they can be shared across different dashboards).
+The recommended way to add or modify presets is to set up a `plotly_presets.js` script in the `www` subdirectory of your `config` folder.
+```js
+window.PlotlyGraphCardPresets = {
+  // Add your presets here with the following format (or check the examples below)
+  // PresetName: { PresetConfiguration }
+};
+```
+To ensure this file is loaded on every dashboard, add the following lines to your `configuration.yaml`.
+```yaml
+frontend:
+  extra_module_url:
+    - /local/plotly_presets.js
+```
+You might have to clear your browser cache or restart HA for changes to take effect.
+
+### Examples
+
+The preset configuration should be defined as a JS object instead of the YAML format used by the card.
+Below is an example YAML configuration that is split into several corresponding presets.
+
+<table>
+<tr>
+<th>YAML configuration</th>
+</tr>
+<tr>
+<td>
+
+```yaml
+hours_to_show: current_day
+time_offset: -24h
+defaults:
+  entity:
+    hovertemplate: |
+      $fn ({ get }) => (
+        `%{y:,.1f} ${get('.unit_of_measurement')}<extra>${get('.name')}</extra>`
+      )
+  xaxes:
+    showspikes: true
+    spikemode: across
+    spikethickness: -2
+```
+
+</td>
+</tr>
+<tr>
+<th>Preset configurations</th>
+</tr>
+<tr>
+<td>
+
+```js
+window.PlotlyGraphCardPresets = {
+  yesterday: { // Start of preset with name 'yesterday'
+    hours_to_show: "current_day",
+    time_offset: "-24h",
+  },
+  simpleHover: { // Start of preset with name 'simpleHover'
+    defaults: {
+      entity: {
+        hovertemplate: ({get}) => (
+          `%{y:,.1f} ${get('.unit_of_measurement')}<extra>${get('.name')}</extra>`
+        ),
+      },
+    },
+  },
+  verticalSpikes: { // Start of preset with name 'verticalSpikes'
+    defaults: {
+      xaxes: {
+        showspikes: true,
+        spikemode: "across",
+        spikethickness: -2,
+      },
+    },
+  },
+};
+```
+
+</td>
+</tr>
+</table>
+
+### Usage
+
+To use your defined templates, simply specify the preset name under the `preset` key.
+You can also specify a list of preset names to combine several of them.
+
+E.g. with the above preset definitions, we can show yesterday's temperatures.
+```yaml
+type: custom:plotly-graph
+entities:
+  - sensor.temperature1
+  - sensor.temperature2
+preset: yesterday
+```
+
+Or show a simplified hover tooltip together with vertical spikes.
+```yaml
+type: custom:plotly-graph
+entities:
+  - sensor.temperature1
+  - sensor.temperature2
+preset:
+  - simpleHover
+  - verticalSpikes
+```
 
 # deprecations:
 
